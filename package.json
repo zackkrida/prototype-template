@@ -1,0 +1,8 @@
+{
+  "devDependencies": {
+    "servor": "3.1.0"
+  },
+  "scripts": {
+    "start": "npx servor . index.html 8080 --reload --browse"
+  }
+}
