@@ -1,8 +1,12 @@
 {
   "devDependencies": {
+    "@types/ramda": "^0.27.29",
     "servor": "3.1.0"
   },
   "scripts": {
     "start": "npx servor . index.html 8080 --reload --browse"
+  },
+  "dependencies": {
+    "ramda": "^0.27.1"
   }
 }

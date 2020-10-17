@@ -6,59 +6,126 @@ import {
   useRef,
 } from "https://unpkg.com/htm/preact/standalone.module.js";
 import ow from "https://unpkg.com/oceanwind";
-document.body.className = ow`min-h-full bg-purple-500 text-white text-center`;
+import "https://unpkg.com/ramda@0.27.1/dist/ramda.js";
 
-const Title = html`<h1>Zack Krida is a frontend engineer at creative commons</h1>`;
+document.body.className = ow`min-h-screen bg-purple-500 text-white text-center flex justify-center items-center text-4xl`;
 
-const useResizeable = () => {
-  const ref = useRef(null);
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+/** @type {HTMLAudioElement} */
+const output = document.querySelector("#output");
 
-  const ro = new ResizeObserver((entries) => {
-    for (const entry of entries) {
-      if (entry.contentRect) {
-        setDimensions({ width: entry.contentRect.width, height: entry.contentRect.height });
-      }
-    }
+/** @type {import('ramda')}  */
+const R = window.R;
+const isAudio = R.propEq("kind", "audioinput");
+const filterAudio = R.filter(isAudio);
+
+const audioCtx = new AudioContext();
+const numberOfNodes = 16;
+const data = new Uint8Array(numberOfNodes * 4);
+
+const analyserNode = new AnalyserNode(audioCtx, {
+  fftSize: Math.max(numberOfNodes * 4, 32),
+  maxDecibels: -20,
+  minDecibels: -100,
+  smoothingTimeConstant: 0.8,
+});
+const connectSource = (source) => source.connect(analyserNode);
+
+const elVisualizer = document.querySelector(".visualizer");
+
+const elNodes = Array.from({ length: numberOfNodes }, (n, i) => {
+  let node = document.createElement("div");
+  node.className = "node";
+  node.style.setProperty("--i", i.toString());
+  elVisualizer.appendChild(node);
+  return node;
+});
+
+function updateVisualizer() {
+  requestAnimationFrame(updateVisualizer);
+
+  console.info("setup once, right?");
+
+  analyserNode.getByteFrequencyData(data);
+
+  elNodes.forEach((node, i) => {
+    node.style.setProperty("--c", data[i].toString());
+    node.style.setProperty(
+      "--level",
+      (
+        (data[i] / 255) *
+        // Attempt a log-ish scale for sensitivity in higher registers
+        (1 + i / numberOfNodes)
+      ).toString()
+    );
   });
 
+  //window.volume.textContent = Math.round( (data[0] / 255) * 10) / 10;
+}
+
+/**
+ * @returns {Promise}
+ */
+const getDevices = () => navigator.mediaDevices.enumerateDevices().then(filterAudio);
+const setDevice = (deviceId) => navigator.mediaDevices.getUserMedia({ audio: { deviceId } });
+
+const USBDevice = () => {
+  const [audioDevices, setAudioDevices] = useState([]);
+  const [userAudioDevice, setUserAudioDevice] = useState(null);
+
+  /**
+   * List devices on mount
+   */
   useEffect(() => {
-    if (!ref.current) return;
-    ro.observe(ref.current);
-    return () => ro.unobserve(ref.current);
-  }, [ref]);
+    getDevices().then(setAudioDevices);
+  }, []);
 
-  return [ref, dimensions];
-};
-
-const TestRectangle = () => {
-  const [ref, { width, height }] = useResizeable();
-  const bigStyles = ow`bg-blue-500 padding-lg max-w-2xl  mx-auto`;
-  const smallStyles = ow`bg-black padding-lg max-w-2xl  mx-auto`;
-
-  return html`<div ref=${ref} className=${width > 650 ? bigStyles : smallStyles}>
-    This is a test rectangle. It is ${width} wide and ${height} tall!.
-  </div>`;
-};
-
-const Timer = () => {
-  const [time, setTime] = useState(0);
-
+  /**
+   * Set device when a device is picked
+   */
   useEffect(() => {
-    const timeout = setInterval(() => {
-      setTime(time + 1);
-    }, 1000);
+    if (!userAudioDevice) return;
+  }, [userAudioDevice]);
 
-    return () => clearInterval(timeout);
-  });
+  const setupAudio = (device) => (e) => {
+    audioCtx.resume();
 
-  return html`<div>${time}</div>`;
+    console.info("setup once, right?");
+
+    setUserAudioDevice(device);
+    setDevice(device.deviceId)
+      .then((stream) => {
+        output.srcObject = stream;
+        output.play();
+        return audioCtx.createMediaStreamSource(stream);
+      })
+      .then(connectSource)
+      .then(updateVisualizer);
+  };
+
+  const shouldPickDevice = audioDevices.length > 0 && !userAudioDevice;
+
+  return html`
+    <div>
+      ${shouldPickDevice &&
+      html`<div>
+        <h2>Pick a device:</h2>
+        <ul>
+          ${audioDevices.map(
+            (device) => html`<li>
+              <button onClick=${setupAudio(device)} type="button">${device.label}</button>
+            </li>`
+          )}
+        </ul>
+      </div>`}
+    </div>
+  `;
 };
 
 const app = html`
-  ${Title}
-  <${Timer} />
-  <${TestRectangle} />
+  <div>
+    <h1>USB Audio Testing!</h1>
+    <${USBDevice} />
+  </div>
 `;
 
-render(app, document.body);
+render(app, document.querySelector("#app"));
